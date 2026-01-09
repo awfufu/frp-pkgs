@@ -1,0 +1,194 @@
+name: build rpm packages
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check_version:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for updates
+        id: check
+        run: |
+          LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "Latest version: $LATEST_VERSION"
+          
+          CURRENT_VERSION=$(cat latest_version.txt 2>/dev/null || echo "0.0.0")
+          echo "Current version: $CURRENT_VERSION"
+          
+          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Already up to date."
+            echo "build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version available."
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: check_version
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+    container:
+      image: fedora:latest # Build on latest Fedora as base for universal package
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: dnf install -y rpm-build rpmdevtools wget git systemd-rpm-macros
+
+    - name: Download sources
+      run: |
+        VERSION=${{ needs.check_version.outputs.version }}
+        ARCH=${{ matrix.arch }}
+        if [ "$ARCH" == "x86_64" ]; then
+          GOARCH="amd64"
+        elif [ "$ARCH" == "aarch64" ]; then
+          GOARCH="arm64"
+        fi
+        
+        mkdir -p ~/rpmbuild/SOURCES
+        
+        # Download FRP binary
+        wget https://github.com/fatedier/frp/releases/download/v${VERSION}/frp_${VERSION}_linux_${GOARCH}.tar.gz -O ~/rpmbuild/SOURCES/frp_${VERSION}_linux_${GOARCH}.tar.gz
+        
+        # Copy service files to SOURCES
+        cp frpc@.service ~/rpmbuild/SOURCES/
+        cp frps@.service ~/rpmbuild/SOURCES/
+
+    - name: Build RPM
+      run: |
+        VERSION=${{ needs.check_version.outputs.version }}
+        rpmbuild -bb \
+          --define "_version ${VERSION}" \
+          --define "_release 1" \
+          --target ${{ matrix.arch }} \
+          frp.spec
+        
+        # Rename artifacts to include version if not already obvious, but rpmbuild naming is standard.
+        # Standard: name-ver-rel.dist.arch.rpm
+        # We'll just list them to be sure
+        ls -l ~/rpmbuild/RPMS/${{ matrix.arch }}/
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: frp-rpm-${{ matrix.arch }}
+        path: /github/home/rpmbuild/RPMS/${{ matrix.arch }}/*.rpm
+
+  release:
+    needs: [check_version, build]
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.check_version.outputs.version }}
+        name: FRP v${{ needs.check_version.outputs.version }}
+        body: |
+          Auto RPM build for frp v${{ needs.check_version.outputs.version }}
+          
+          Universal RPM packages for x86_64 and aarch64.
+        files: |
+          artifacts/**/*.rpm
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  repo:
+    needs: [check_version, build]
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Setup Repo Structure
+      run: |
+        mkdir -p repo
+        # Artifacts are named frp-rpm-{arch}
+        # We want structure: repo/{arch}/
+        
+        for dir in artifacts/*; do
+          dirname=$(basename "$dir")
+          # Extract arch from frp-rpm-<arch>
+          # dirname format: frp-rpm-<arch>
+          arch=$(echo $dirname | sed -E 's/frp-rpm-//')
+          
+          mkdir -p repo/$arch
+          cp $dir/*.rpm repo/$arch/
+        done
+        
+        # Generate frp.repo
+        echo "[frp]
+        name=FRP Packages for Fedora - \$basearch
+        baseurl=https://awfufu.github.io/frp-pkgs/\$basearch/
+        enabled=1
+        gpgcheck=0" > repo/frp.repo
+        
+        # Generate index.html
+        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo</pre></body></html>" > repo/index.html
+        
+        # Generate index.html
+        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo</pre></body></html>" > repo/index.html
+
+    - name: Generate Repodata
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y createrepo-c
+        
+        for dir in repo/fc*/*; do
+          echo "Processing $dir..."
+          createrepo_c "$dir"
+        done
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./repo
+        keep_files: true
+        commit_message: "Update repo for v${{ needs.check_version.outputs.version }}"
+
+    - name: Update version record
+      run: |
+        echo "${{ needs.check_version.outputs.version }}" > latest_version.txt
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config --global --add safe.directory '*'
+        git add latest_version.txt
+        git commit -m "Update to v${{ needs.check_version.outputs.version }}"
+        git push

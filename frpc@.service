@@ -1,0 +1,14 @@
+[Unit]
+Description=FRP Client (%i)
+After=network.target syslog.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/frpc
+ExecStart=/usr/bin/frpc -c /etc/frpc/%i.toml
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
