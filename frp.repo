@@ -1,0 +1,5 @@
+[frp]
+name=FRP Packages for Fedora - $basearch
+baseurl=https://awfufu.github.io/frp-pkgs/$basearch/
+enabled=1
+gpgcheck=0
