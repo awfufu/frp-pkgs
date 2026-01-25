@@ -73,7 +73,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: dnf install -y rpm-build wget
+      run: dnf install -y rpm-build wget systemd-rpm-macros
 
     - name: Prepare Sources
       run: |
@@ -90,6 +90,12 @@ jobs:
         wget https://github.com/fatedier/frp/releases/download/v${VERSION}/frp_${VERSION}_linux_${GOARCH}.tar.gz -O ~/rpmbuild/SOURCES/frp_${VERSION}_linux_${GOARCH}.tar.gz
 
         cp frp.spec ~/rpmbuild/SPECS/
+        
+        # Automate Changelog Date using placeholder in frp.spec
+        # Format: * Day Mon DD YYYY Name <Email> - Version-Release
+        CURRENT_DATE=$(LC_TIME=en_US.UTF-8 date "+%a %b %d %Y")
+        sed -i "s/%{date}/$CURRENT_DATE/" ~/rpmbuild/SPECS/frp.spec
+        
         cp frpc@.service ~/rpmbuild/SOURCES/
         cp frps@.service ~/rpmbuild/SOURCES/
 

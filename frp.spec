@@ -74,5 +74,5 @@ install -m 644 %{SOURCE2} %{buildroot}%{_unitdir}/frps@.service
 %{_unitdir}/frps@.service
 
 %changelog
-* Fri Jan 25 2026 awfufu <me@awfufu.com> - %{version}-%{release}
+* %{date} awfufu <me@awfufu.com> - %{version}-%{release}
 - Automated build
