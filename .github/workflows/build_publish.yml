@@ -1,4 +1,4 @@
-name: build deb packages
+name: build and publish packages
 
 "on":
   workflow_dispatch:
@@ -28,10 +28,8 @@ jobs:
       - name: Check for updates
         id: check
         run: |
-          # If version is provided via input, use it
           if [ -n "${{ inputs.version }}" ]; then
             INPUT_VERSION="${{ inputs.version }}"
-            # Strip v prefix if present
             VERSION=${INPUT_VERSION#v}
             echo "Using input version: $VERSION"
             echo "build=true" >> $GITHUB_OUTPUT
@@ -42,7 +40,7 @@ jobs:
           LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
           LATEST_VERSION=${LATEST_TAG#v}
           echo "Latest upstream version: $LATEST_VERSION"
-          
+
           CURRENT_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
           if [ "$CURRENT_TAG" == "null" ]; then
             CURRENT_VERSION="0.0.0"
@@ -50,7 +48,7 @@ jobs:
             CURRENT_VERSION=${CURRENT_TAG#v}
           fi
           echo "Current repo version: $CURRENT_VERSION"
-          
+
           if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "${{ inputs.force_build }}" != "true" ]; then
             echo "Already up to date."
             echo "build=false" >> $GITHUB_OUTPUT
@@ -60,7 +58,57 @@ jobs:
             echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           fi
 
-  build:
+  build_rpm:
+    needs: check_version
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+    container:
+      image: fedora:latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: dnf install -y rpm-build wget
+
+    - name: Prepare Sources
+      run: |
+        VERSION=${{ needs.check_version.outputs.version }}
+        mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+        # Download source
+        if [ "${{ matrix.arch }}" == "x86_64" ]; then
+          GOARCH="amd64"
+        else
+          GOARCH="arm64"
+        fi
+
+        wget https://github.com/fatedier/frp/releases/download/v${VERSION}/frp_${VERSION}_linux_${GOARCH}.tar.gz -O ~/rpmbuild/SOURCES/frp_${VERSION}_linux_${GOARCH}.tar.gz
+
+        cp frp.spec ~/rpmbuild/SPECS/
+        cp frpc@.service ~/rpmbuild/SOURCES/
+        cp frps@.service ~/rpmbuild/SOURCES/
+
+    - name: Build RPM
+      run: |
+        VERSION=${{ needs.check_version.outputs.version }}
+        RELEASE="1"
+        rpmbuild -bb ~/rpmbuild/SPECS/frp.spec \
+          --define "_version ${VERSION}" \
+          --define "_release ${RELEASE}" \
+          --target ${{ matrix.arch }}
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: frp-rpm-${{ matrix.arch }}
+        path: ~/rpmbuild/RPMS/${{ matrix.arch }}/*.rpm
+
+  build_deb:
     needs: check_version
     if: needs.check_version.outputs.build == 'true'
     runs-on: ubuntu-latest
@@ -76,8 +124,6 @@ jobs:
         run: |
           VERSION=${{ needs.check_version.outputs.version }}
           ARCH=${{ matrix.arch }}
-
-          # Download FRP binary
           wget https://github.com/fatedier/frp/releases/download/v${VERSION}/frp_${VERSION}_linux_${ARCH}.tar.gz
           tar xzf frp_${VERSION}_linux_${ARCH}.tar.gz
           mv frp_${VERSION}_linux_${ARCH} frp_bin
@@ -92,12 +138,10 @@ jobs:
           mkdir -p frpc_pkg/lib/systemd/system
           mkdir -p frpc_pkg/etc/frp
 
-          # Install files
           cp frp_bin/frpc frpc_pkg/usr/bin/
           cp frp_bin/frpc.toml frpc_pkg/etc/frp/
           cp frpc@.service frpc_pkg/lib/systemd/system/
 
-          # Create control file
           cat > frpc_pkg/DEBIAN/control <<EOF
           Package: frpc
           Version: ${VERSION}-1
@@ -122,12 +166,10 @@ jobs:
           mkdir -p frps_pkg/lib/systemd/system
           mkdir -p frps_pkg/etc/frp
 
-          # Install files
           cp frp_bin/frps frps_pkg/usr/bin/
           cp frp_bin/frps.toml frps_pkg/etc/frp/
           cp frps@.service frps_pkg/lib/systemd/system/
 
-          # Create control file
           cat > frps_pkg/DEBIAN/control <<EOF
           Package: frps
           Version: ${VERSION}-1
@@ -149,7 +191,7 @@ jobs:
           path: "*.deb"
 
   release:
-    needs: [check_version, build]
+    needs: [check_version, build_rpm, build_deb]
     if: needs.check_version.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -164,14 +206,14 @@ jobs:
           tag_name: v${{ needs.check_version.outputs.version }}
           name: v${{ needs.check_version.outputs.version }}
           body: |
-            Auto DEB build for frp v${{ needs.check_version.outputs.version }}
+            Auto release for frp v${{ needs.check_version.outputs.version }}
           files: |
-            artifacts/**/*.deb
+            artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  repo:
-    needs: [check_version, build]
+  deploy:
+    needs: [check_version, release]
     if: needs.check_version.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -183,26 +225,46 @@ jobs:
         with:
           path: artifacts
 
-      - name: Setup Repo Structure
+      - name: Setup Output Structure
         run: |
-          mkdir -p deb
+          mkdir -p output/repo
+          mkdir -p output/deb
 
-          # Flatten artifacts
-          find artifacts -name "*.deb" -exec cp {} deb/ \;
+      - name: Setup RPM Repo
+        run: |
+          # Artifacts: frp-rpm-{arch} in artifacts/
+          for dir in artifacts/frp-rpm-*; do
+            dirname=$(basename "$dir")
+            arch=$(echo $dirname | sed -E 's/frp-rpm-//')
+            mkdir -p output/repo/$arch
+            cp $dir/*.rpm output/repo/$arch/
+          done
 
-          # Install dpkg-dev for scanpackages
+          echo "[go-frp]
+          name=FRP Packages for Fedora - \$basearch
+          baseurl=https://go-frp.awfufu.com/\$basearch/
+          enabled=1
+          gpgcheck=0" > output/repo/go-frp.repo
+
+          echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://go-frp.awfufu.com/go-frp.repo</pre></body></html>" > output/repo/index.html
+
           sudo apt-get update
+          sudo apt-get install -y createrepo-c
+          for dir in output/repo/*; do
+            if [ -d "$dir" ]; then
+              createrepo_c "$dir"
+            fi
+          done
+
+      - name: Setup DEB Repo
+        run: |
+          find artifacts -name "*.deb" -exec cp {} output/deb/ \;
+
           sudo apt-get install -y dpkg-dev apt-utils
-
-          cd deb
-
-          # Generate Packages file
+          cd output/deb
           dpkg-scanpackages . > Packages
-
-          # Compress
           gzip -k -f Packages
 
-          # Generate Release file
           cat > apt-ftparchive.conf <<EOF
           APT::FTPArchive::Release::Origin "FRP";
           APT::FTPArchive::Release::Label "FRP";
@@ -212,18 +274,14 @@ jobs:
           APT::FTPArchive::Release::Components "main";
           APT::FTPArchive::Release::Description "FRP Packages";
           EOF
-          
           apt-ftparchive release . -c apt-ftparchive.conf > Release
-
-          # Do NOT remove .deb files, so they are published to gh-pages
-          cd ..
+          cd ../..
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: frp-pkgs
-          directory: deb
-          # Optional: Enable this if you want to have a default branch deployment (production)
+          projectName: go-frp
+          directory: output
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

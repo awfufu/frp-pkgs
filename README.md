@@ -9,8 +9,14 @@ Auto RPM build for [fatedier/frp](https://github.com/fatedier/frp) (Fast Reverse
 Add the repository to your system to receive automatic updates.
 
 ```bash
-sudo dnf config-manager --add-repo https://go-frp.awfufu.com/go-frp.repo
+# Add repository
+sudo dnf config-manager addrepo --from-repofile=https://go-frp.awfufu.com/go-frp.repo
 
+# For old dnf
+# sudo dnf config-manager --add-repo https://go-frp.awfufu.com/go-frp.repo
+
+# Update and install
+sudo dnf update
 sudo dnf install frpc frps
 ```
 

@@ -40,16 +40,9 @@ jobs:
             echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           fi
 
-      - name: Trigger RPM Build
+      - name: Trigger Build
         if: steps.check.outputs.build == 'true'
         run: |
-          gh workflow run build_rpm.yml -f version=${{ steps.check.outputs.version }}
+          gh workflow run build_publish.yml -f version=${{ steps.check.outputs.version }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Trigger Deb Build
-        if: steps.check.outputs.build == 'true'
-        run: |
-          gh workflow run build_deb.yml -f version=${{ steps.check.outputs.version }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
