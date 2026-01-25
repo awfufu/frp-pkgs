@@ -14,6 +14,7 @@ name: build and publish packages
 
 permissions:
   contents: write
+  deployments: write
 
 jobs:
   check_version:
@@ -233,8 +234,7 @@ jobs:
 
       - name: Setup Output Structure
         run: |
-          mkdir -p output/repo
-          mkdir -p output/deb
+          mkdir -p output
 
       - name: Setup RPM Repo
         run: |
@@ -242,35 +242,47 @@ jobs:
           for dir in artifacts/frp-rpm-*; do
             dirname=$(basename "$dir")
             arch=$(echo $dirname | sed -E 's/frp-rpm-//')
-            mkdir -p output/repo/$arch
-            cp $dir/*.rpm output/repo/$arch/
+            mkdir -p output/$arch
+            cp $dir/*.rpm output/$arch/
           done
 
           echo "[go-frp]
           name=FRP Packages for Fedora - \$basearch
           baseurl=https://go-frp.awfufu.com/\$basearch/
           enabled=1
-          gpgcheck=0" > output/repo/go-frp.repo
-
-          echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://go-frp.awfufu.com/go-frp.repo</pre></body></html>" > output/repo/index.html
+          gpgcheck=0" > output/go-frp.repo
 
           sudo apt-get update
           sudo apt-get install -y createrepo-c
-          for dir in output/repo/*; do
-            if [ -d "$dir" ]; then
-              createrepo_c "$dir"
+          
+          # Only run createrepo on RPM architecture directories
+          for arch in x86_64 aarch64; do
+            if [ -d "output/$arch" ]; then
+              createrepo_c "output/$arch"
             fi
           done
 
       - name: Setup DEB Repo
         run: |
-          find artifacts -name "*.deb" -exec cp {} output/deb/ \;
+          # Create standard repository structure
+          mkdir -p output/pool/main
+          mkdir -p output/dists/stable/main/binary-amd64
+          mkdir -p output/dists/stable/main/binary-arm64
+
+          # Move artifacts to pool
+          find artifacts -name "*.deb" -exec cp {} output/pool/main/ \;
 
           sudo apt-get install -y dpkg-dev apt-utils
-          cd output/deb
-          dpkg-scanpackages . > Packages
-          gzip -k -f Packages
+          cd output
 
+          # Generate Packages indices
+          dpkg-scanpackages --arch amd64 pool/main > dists/stable/main/binary-amd64/Packages
+          gzip -k -f dists/stable/main/binary-amd64/Packages
+
+          dpkg-scanpackages --arch arm64 pool/main > dists/stable/main/binary-arm64/Packages
+          gzip -k -f dists/stable/main/binary-arm64/Packages
+
+          # Generate Release file
           cat > apt-ftparchive.conf <<EOF
           APT::FTPArchive::Release::Origin "FRP";
           APT::FTPArchive::Release::Label "FRP";
@@ -280,8 +292,23 @@ jobs:
           APT::FTPArchive::Release::Components "main";
           APT::FTPArchive::Release::Description "FRP Packages";
           EOF
-          apt-ftparchive release . -c apt-ftparchive.conf > Release
-          cd ../..
+
+          apt-ftparchive release -c apt-ftparchive.conf dists/stable > dists/stable/Release
+
+          # GPG Signing
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > private.key
+          gpg --batch --import private.key
+          rm private.key
+
+          # Export public key for users
+          gpg --armor --export "me@awfufu.com" > public.gpg
+
+          # Sign indices
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" -abs -o dists/stable/Release.gpg dists/stable/Release
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Generate Index Page
         run: |

@@ -25,10 +25,14 @@ sudo dnf install frpc frps
 Add the repository to known lists.
 
 ```bash
-# Add repository
-echo "deb [trusted=yes] https://go-frp.awfufu.com/deb ./" | sudo tee /etc/apt/sources.list.d/go-frp.list
+# 1. Download and add GPG key
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://go-frp.awfufu.com/public.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/go-frp.gpg
 
-# Update and install
+# 2. Add repository
+echo "deb [signed-by=/etc/apt/keyrings/go-frp.gpg] https://go-frp.awfufu.com stable main" | sudo tee /etc/apt/sources.list.d/go-frp.list
+
+# 3. Update and install
 sudo apt update
 sudo apt install frpc frps
 ```
