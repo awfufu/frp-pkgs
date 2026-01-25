@@ -1,9 +1,16 @@
 name: build rpm packages
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # Run daily
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.38.0)'
+        required: false
+      force_build:
+        description: 'Force build even if exists'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -21,6 +28,17 @@ jobs:
       - name: Check for updates
         id: check
         run: |
+          # If version is provided via input, use it
+          if [ -n "${{ inputs.version }}" ]; then
+            INPUT_VERSION="${{ inputs.version }}"
+            # Strip v prefix if present
+            VERSION=${INPUT_VERSION#v}
+            echo "Using input version: $VERSION"
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
           LATEST_VERSION=${LATEST_TAG#v}
           echo "Latest upstream version: $LATEST_VERSION"
@@ -33,7 +51,7 @@ jobs:
           fi
           echo "Current repo version: $CURRENT_VERSION"
 
-          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "${{ inputs.force_build }}" != "true" ]; then
             echo "Already up to date."
             echo "build=false" >> $GITHUB_OUTPUT
           else
@@ -50,7 +68,7 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
     container:
-      image: fedora:latest # Build on latest Fedora as base for universal package
+      image: fedora:latest  # Build on latest Fedora as base for universal package
 
     steps:
     - name: Checkout code

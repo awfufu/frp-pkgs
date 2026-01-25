@@ -28,7 +28,7 @@ Add the repository to known lists.
 
 ```bash
 # Add repository
-echo "deb https://awfufu.github.io/frp-pkgs/deb/ ./" | sudo tee /etc/apt/sources.list.d/go-frp.list
+echo "deb [trusted=yes] https://awfufu.github.io/frp-pkgs/deb/ ./" | sudo tee /etc/apt/sources.list.d/go-frp.list
 
 # Update and install
 sudo apt update

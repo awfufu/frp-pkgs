@@ -1,9 +1,16 @@
 name: build deb packages
 
 "on":
-  schedule:
-    - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.38.0)'
+        required: false
+      force_build:
+        description: 'Force build even if exists'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -21,6 +28,17 @@ jobs:
       - name: Check for updates
         id: check
         run: |
+          # If version is provided via input, use it
+          if [ -n "${{ inputs.version }}" ]; then
+            INPUT_VERSION="${{ inputs.version }}"
+            # Strip v prefix if present
+            VERSION=${INPUT_VERSION#v}
+            echo "Using input version: $VERSION"
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
           LATEST_VERSION=${LATEST_TAG#v}
           echo "Latest upstream version: $LATEST_VERSION"
@@ -33,7 +51,7 @@ jobs:
           fi
           echo "Current repo version: $CURRENT_VERSION"
 
-          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "${{ inputs.force_build }}" != "true" ]; then
             echo "Already up to date."
             echo "build=false" >> $GITHUB_OUTPUT
           else
@@ -87,7 +105,7 @@ jobs:
           Priority: optional
           Architecture: ${ARCH}
           Depends: systemd
-          Maintainer: awfufu <awfufu@example.com>
+          Maintainer: awfufu <me@awfufu.com>
           Description: Client for frp (Fast Reverse Proxy)
            frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
           EOF
@@ -117,7 +135,7 @@ jobs:
           Priority: optional
           Architecture: ${ARCH}
           Depends: systemd
-          Maintainer: awfufu <awfufu@example.com>
+          Maintainer: awfufu <me@awfufu.com>
           Description: Server for frp (Fast Reverse Proxy)
            frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
           EOF
@@ -168,13 +186,14 @@ jobs:
       - name: Setup Repo Structure
         run: |
           mkdir -p deb
+          touch deb/.nojekyll
 
           # Flatten artifacts
           find artifacts -name "*.deb" -exec cp {} deb/ \;
 
           # Install dpkg-dev for scanpackages
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev
+          sudo apt-get install -y dpkg-dev apt-utils
 
           cd deb
 
@@ -191,13 +210,17 @@ jobs:
           gzip -k -f Packages
 
           # Generate Release file
-          echo "Origin: FRP" > Release
-          echo "Label: FRP" >> Release
-          echo "Suite: stable" >> Release
-          echo "Codename: stable" >> Release
-          echo "Architectures: amd64 arm64" >> Release
-          echo "Components: main" >> Release
-          echo "Description: FRP Packages" >> Release
+          cat > apt-ftparchive.conf <<EOF
+          APT::FTPArchive::Release::Origin "FRP";
+          APT::FTPArchive::Release::Label "FRP";
+          APT::FTPArchive::Release::Suite "stable";
+          APT::FTPArchive::Release::Codename "stable";
+          APT::FTPArchive::Release::Architectures "amd64 arm64";
+          APT::FTPArchive::Release::Components "main";
+          APT::FTPArchive::Release::Description "FRP Packages";
+          EOF
+          
+          apt-ftparchive release . -c apt-ftparchive.conf > Release
 
           # Remove .deb files
           rm *.deb
