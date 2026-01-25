@@ -283,6 +283,11 @@ jobs:
           apt-ftparchive release . -c apt-ftparchive.conf > Release
           cd ../..
 
+      - name: Generate Index Page
+        run: |
+          sudo apt-get install -y pandoc
+          pandoc README.md -o output/index.html --metadata title="FRP Packages" -s
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
