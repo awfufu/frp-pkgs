@@ -160,10 +160,7 @@ jobs:
         gpgcheck=0" > repo/frp.repo
         
         # Generate index.html
-        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo</pre></body></html>" > repo/index.html
-        
-        # Generate index.html
-        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo</pre></body></html>" > repo/index.html
+        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager addrepo --from-repofile=https://awfufu.github.io/frp-pkgs/frp.repo</pre><p>For older DNF versions:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo</pre></body></html>" > repo/index.html
 
     - name: Generate Repodata
       run: |
@@ -173,7 +170,16 @@ jobs:
         for dir in repo/*; do
           if [ -d "$dir" ]; then
             echo "Processing $dir..."
-            createrepo_c "$dir"
+            # Calculate Base URL for this version's release artifacts
+            # GitHub Release structure: https://github.com/<owner>/<repo>/releases/download/<tag>/<filename>
+            # We assume the RPM filename in the repo matches the one in the release.
+            
+            BASE_URL="https://github.com/${{ github.repository }}/releases/download/v${{ needs.check_version.outputs.version }}/"
+            
+            createrepo_c --baseurl "$BASE_URL" "$dir"
+            
+            # Remove RPM files so they are not committed to gh-pages
+            rm "$dir"/*.rpm
           fi
         done
 

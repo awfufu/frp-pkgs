@@ -14,7 +14,11 @@ Auto RPM build for [frp](https://github.com/fatedier/frp) (Fast Reverse Proxy), 
 Add the repository to your system to receive automatic updates.
 
 ```bash
+sudo dnf config-manager addrepo --from-repofile=https://awfufu.github.io/frp-pkgs/frp.repo
+
+# For older DNF versions:
 sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/frp.repo
+
 sudo dnf install frpc frps
 ```
 
