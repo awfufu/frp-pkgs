@@ -22,6 +22,19 @@ sudo dnf config-manager addrepo --from-repofile=https://awfufu.github.io/frp-pkg
 sudo dnf install frpc frps
 ```
 
+#### Debian / Ubuntu
+
+Add the repository to known lists.
+
+```bash
+# Add repository
+echo "deb https://awfufu.github.io/frp-pkgs/deb/ ./" | sudo tee /etc/apt/sources.list.d/go-frp.list
+
+# Update and install
+sudo apt update
+sudo apt install frpc frps
+```
+
 ### Usage
 
 #### Client (frpc)
@@ -56,8 +69,7 @@ sudo dnf install frpc frps
 
 #### Build Status
 
-| Fedora Version | Status |
-|----------------|--------|
-| Fedora 41      | ![Build Status](https://github.com/awfufu/frp-pkgs/actions/workflows/build_rpm.yml/badge.svg) |
-| Fedora 42      | ![Build Status](https://github.com/awfufu/frp-pkgs/actions/workflows/build_rpm.yml/badge.svg) |
-| Fedora 43      | ![Build Status](https://github.com/awfufu/frp-pkgs/actions/workflows/build_rpm.yml/badge.svg) |
+| Type | Status |
+|------|--------|
+| RPM  | ![Build Status](https://github.com/awfufu/frp-pkgs/actions/workflows/build_rpm.yml/badge.svg) |
+| DEB  | ![Build Status](https://github.com/awfufu/frp-pkgs/actions/workflows/build_deb.yml/badge.svg) |

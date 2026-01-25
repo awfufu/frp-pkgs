@@ -1,0 +1,213 @@
+name: build deb packages
+
+"on":
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check_version:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for updates
+        id: check
+        run: |
+          LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "Latest upstream version: $LATEST_VERSION"
+
+          CURRENT_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
+          if [ "$CURRENT_TAG" == "null" ]; then
+            CURRENT_VERSION="0.0.0"
+          else
+            CURRENT_VERSION=${CURRENT_TAG#v}
+          fi
+          echo "Current repo version: $CURRENT_VERSION"
+
+          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Already up to date."
+            echo "build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version available."
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: check_version
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download sources
+        run: |
+          VERSION=${{ needs.check_version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+
+          # Download FRP binary
+          wget https://github.com/fatedier/frp/releases/download/v${VERSION}/frp_${VERSION}_linux_${ARCH}.tar.gz
+          tar xzf frp_${VERSION}_linux_${ARCH}.tar.gz
+          mv frp_${VERSION}_linux_${ARCH} frp_bin
+
+      - name: Build frpc package
+        run: |
+          VERSION=${{ needs.check_version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+
+          mkdir -p frpc_pkg/DEBIAN
+          mkdir -p frpc_pkg/usr/bin
+          mkdir -p frpc_pkg/lib/systemd/system
+          mkdir -p frpc_pkg/etc/frp
+
+          # Install files
+          cp frp_bin/frpc frpc_pkg/usr/bin/
+          cp frp_bin/frpc.toml frpc_pkg/etc/frp/
+          cp frpc@.service frpc_pkg/lib/systemd/system/
+
+          # Create control file
+          cat > frpc_pkg/DEBIAN/control <<EOF
+          Package: frpc
+          Version: ${VERSION}-1
+          Section: net
+          Priority: optional
+          Architecture: ${ARCH}
+          Depends: systemd
+          Maintainer: awfufu <awfufu@example.com>
+          Description: Client for frp (Fast Reverse Proxy)
+           frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
+          EOF
+
+          dpkg-deb --build frpc_pkg frpc_${VERSION}-1_${ARCH}.deb
+
+      - name: Build frps package
+        run: |
+          VERSION=${{ needs.check_version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+
+          mkdir -p frps_pkg/DEBIAN
+          mkdir -p frps_pkg/usr/bin
+          mkdir -p frps_pkg/lib/systemd/system
+          mkdir -p frps_pkg/etc/frp
+
+          # Install files
+          cp frp_bin/frps frps_pkg/usr/bin/
+          cp frp_bin/frps.toml frps_pkg/etc/frp/
+          cp frps@.service frps_pkg/lib/systemd/system/
+
+          # Create control file
+          cat > frps_pkg/DEBIAN/control <<EOF
+          Package: frps
+          Version: ${VERSION}-1
+          Section: net
+          Priority: optional
+          Architecture: ${ARCH}
+          Depends: systemd
+          Maintainer: awfufu <awfufu@example.com>
+          Description: Server for frp (Fast Reverse Proxy)
+           frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
+          EOF
+
+          dpkg-deb --build frps_pkg frps_${VERSION}-1_${ARCH}.deb
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frp-deb-${{ matrix.arch }}
+          path: "*.deb"
+
+  release:
+    needs: [check_version, build]
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check_version.outputs.version }}
+          name: v${{ needs.check_version.outputs.version }}
+          body: |
+            Auto DEB build for frp v${{ needs.check_version.outputs.version }}
+          files: |
+            artifacts/**/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  repo:
+    needs: [check_version, build]
+    if: needs.check_version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Setup Repo Structure
+        run: |
+          mkdir -p deb
+
+          # Flatten artifacts
+          find artifacts -name "*.deb" -exec cp {} deb/ \;
+
+          # Install dpkg-dev for scanpackages
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+
+          cd deb
+
+          # Generate Packages file
+          dpkg-scanpackages . > Packages
+
+          # Replace Filename with URL
+          # Filename: ./frpc_0.66.0-1_amd64.deb -> Filename: https://github.com/.../frpc_0.66.0-1_amd64.deb
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/v${{ needs.check_version.outputs.version }}/"
+
+          sed -i "s|Filename: ./|Filename: $BASE_URL|g" Packages
+
+          # Compress
+          gzip -k -f Packages
+
+          # Generate Release file
+          echo "Origin: FRP" > Release
+          echo "Label: FRP" >> Release
+          echo "Suite: stable" >> Release
+          echo "Codename: stable" >> Release
+          echo "Architectures: amd64 arm64" >> Release
+          echo "Components: main" >> Release
+          echo "Description: FRP Packages" >> Release
+
+          # Remove .deb files
+          rm *.deb
+          cd ..
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deb
+          destination_dir: deb
+          keep_files: true
+          commit_message: "Update deb repo for v${{ needs.check_version.outputs.version }}"
