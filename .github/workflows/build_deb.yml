@@ -42,7 +42,7 @@ jobs:
           LATEST_TAG=$(curl -s https://api.github.com/repos/fatedier/frp/releases/latest | jq -r .tag_name)
           LATEST_VERSION=${LATEST_TAG#v}
           echo "Latest upstream version: $LATEST_VERSION"
-
+          
           CURRENT_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
           if [ "$CURRENT_TAG" == "null" ]; then
             CURRENT_VERSION="0.0.0"
@@ -50,7 +50,7 @@ jobs:
             CURRENT_VERSION=${CURRENT_TAG#v}
           fi
           echo "Current repo version: $CURRENT_VERSION"
-
+          
           if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "${{ inputs.force_build }}" != "true" ]; then
             echo "Already up to date."
             echo "build=false" >> $GITHUB_OUTPUT
@@ -186,7 +186,6 @@ jobs:
       - name: Setup Repo Structure
         run: |
           mkdir -p deb
-          touch deb/.nojekyll
 
           # Flatten artifacts
           find artifacts -name "*.deb" -exec cp {} deb/ \;
@@ -199,12 +198,6 @@ jobs:
 
           # Generate Packages file
           dpkg-scanpackages . > Packages
-
-          # Replace Filename with URL
-          # Filename: ./frpc_0.66.0-1_amd64.deb -> Filename: https://github.com/.../frpc_0.66.0-1_amd64.deb
-          BASE_URL="https://github.com/${{ github.repository }}/releases/download/v${{ needs.check_version.outputs.version }}/"
-
-          sed -i "s|Filename: ./|Filename: $BASE_URL|g" Packages
 
           # Compress
           gzip -k -f Packages
@@ -222,15 +215,15 @@ jobs:
           
           apt-ftparchive release . -c apt-ftparchive.conf > Release
 
-          # Remove .deb files
-          rm *.deb
+          # Do NOT remove .deb files, so they are published to gh-pages
           cd ..
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./deb
-          destination_dir: deb
-          keep_files: true
-          commit_message: "Update deb repo for v${{ needs.check_version.outputs.version }}"
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: frp-pkgs
+          directory: deb
+          # Optional: Enable this if you want to have a default branch deployment (production)
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

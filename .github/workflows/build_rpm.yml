@@ -178,12 +178,12 @@ jobs:
         # Generate go-frp.repo
         echo "[go-frp]
         name=FRP Packages for Fedora - \$basearch
-        baseurl=https://awfufu.github.io/frp-pkgs/\$basearch/
+        baseurl=https://go-frp.awfufu.com/\$basearch/
         enabled=1
         gpgcheck=0" > repo/go-frp.repo
 
         # Generate index.html
-        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager addrepo --from-repofile=https://awfufu.github.io/frp-pkgs/go-frp.repo</pre><p>For older DNF versions:</p><pre>sudo dnf config-manager --add-repo https://awfufu.github.io/frp-pkgs/go-frp.repo</pre></body></html>" > repo/index.html
+        echo "<html><body><h1>FRP RPM Repository</h1><p>Use the following command to configure this repository:</p><pre>sudo dnf config-manager addrepo --from-repofile=https://go-frp.awfufu.com/go-frp.repo</pre><p>For older DNF versions:</p><pre>sudo dnf config-manager --add-repo https://go-frp.awfufu.com/go-frp.repo</pre></body></html>" > repo/index.html
 
     - name: Generate Repodata
       run: |
@@ -206,12 +206,13 @@ jobs:
           fi
         done
 
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
+    - name: Deploy to Cloudflare Pages
+      uses: cloudflare/pages-action@v1
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./repo
-        keep_files: true
-        commit_message: "Update repo for v${{ needs.check_version.outputs.version }}"
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        projectName: frp-pkgs-rpm
+        directory: repo
+        gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
 
