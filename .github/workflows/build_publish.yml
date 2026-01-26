@@ -164,6 +164,10 @@ jobs:
            frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
           EOF
 
+          cat > frpc_pkg/DEBIAN/conffiles <<EOF
+          /etc/frpc/frpc.toml
+          EOF
+
           dpkg-deb --build frpc_pkg frpc_${VERSION}-1_${ARCH}.deb
 
       - name: Build frps package
@@ -191,6 +195,10 @@ jobs:
           Maintainer: awfufu <me@awfufu.com>
           Description: Server for frp (Fast Reverse Proxy)
            frp is a fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.
+          EOF
+
+          cat > frps_pkg/DEBIAN/conffiles <<EOF
+          /etc/frps/frps.toml
           EOF
 
           dpkg-deb --build frps_pkg frps_${VERSION}-1_${ARCH}.deb
@@ -251,13 +259,37 @@ jobs:
           done
 
           echo "[go-frp]
-          name=FRP Packages for Fedora - \$basearch
+          name=FRP Repository - \$basearch
           baseurl=https://go-frp.awfufu.com/\$basearch/
           enabled=1
-          gpgcheck=0" > output/go-frp.repo
+          gpgcheck=1
+          gpgkey=https://go-frp.awfufu.com/public.gpg" > output/go-frp.repo
 
           sudo apt-get update
-          sudo apt-get install -y createrepo-c
+          sudo apt-get install -y createrepo-c rpm dpkg-dev apt-utils
+
+          # Setup GPG
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > private.key
+          gpg --batch --import private.key
+          rm private.key
+
+          # Configure RPM macros for automated signing
+          cat > ~/.rpmmacros <<EOF
+          %_gpg_name me@awfufu.com
+          %__gpg_sign_cmd %{__gpg} gpg --batch --no-armor --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
+          EOF
+
+          # Sign RPMs
+          for rpm in output/**/*.rpm; do
+            if [ -f "$rpm" ]; then
+              rpmsign --addsign "$rpm"
+            fi
+          done
           
           # Only run createrepo on RPM architecture directories
           for arch in x86_64 aarch64; do
@@ -299,20 +331,14 @@ jobs:
 
           apt-ftparchive release -c apt-ftparchive.conf dists/stable > dists/stable/Release
 
-          # GPG Signing
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > private.key
-          gpg --batch --import private.key
-          rm private.key
-
           # Export public key for users
           gpg --armor --export "me@awfufu.com" > public.gpg
 
           # Sign indices
-          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" --clearsign -o dists/stable/InRelease dists/stable/Release
-          gpg --batch --yes --pinentry-mode loopback --passphrase "${{ secrets.GPG_PASSPHRASE }}" -abs -o dists/stable/Release.gpg dists/stable/Release
+          gpg --batch --yes --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes -abs -o dists/stable/Release.gpg dists/stable/Release
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Generate Index Page
         run: |
@@ -340,3 +366,4 @@ jobs:
           projectName: go-frp
           directory: output
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          wranglerVersion: '3'
