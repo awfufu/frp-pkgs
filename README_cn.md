@@ -54,7 +54,9 @@ sudo vim /etc/frpc/frpc.toml
 
 ```bash
 # 如果使用默认的 /etc/frpc/frpc.toml：
-sudo systemctl enable --now frpc@frpc
+sudo systemctl enable --now frpc
+# 或者 (模板版本)
+# sudo systemctl enable --now frpc@frpc
 
 # 如果使用 /etc/frpc/my-proxy.toml：
 sudo systemctl enable --now frpc@my-proxy
@@ -78,6 +80,8 @@ sudo vim /etc/frps/frps.toml
 2. 启动服务
 
 ```bash
+sudo systemctl enable --now frps
+# 或者 (模板版本)
 sudo systemctl enable --now frps@frps
 ```
 

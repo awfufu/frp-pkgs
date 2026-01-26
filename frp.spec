@@ -17,6 +17,8 @@ URL:            https://github.com/fatedier/frp
 Source0:        https://github.com/fatedier/frp/releases/download/v%{version}/frp_%{version}_linux_%{goarch}.tar.gz
 Source1:        frpc@.service
 Source2:        frps@.service
+Source3:        frpc.service
+Source4:        frps.service
 
 BuildRequires:  systemd-rpm-macros
 
@@ -58,6 +60,8 @@ install -m 644 frps.toml %{buildroot}%{_sysconfdir}/frps/frps.toml
 # Install systemd service templates
 install -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/frpc@.service
 install -m 644 %{SOURCE2} %{buildroot}%{_unitdir}/frps@.service
+install -m 644 %{SOURCE3} %{buildroot}%{_unitdir}/frpc.service
+install -m 644 %{SOURCE4} %{buildroot}%{_unitdir}/frps.service
 
 %files -n frpc
 %license LICENSE
@@ -65,6 +69,7 @@ install -m 644 %{SOURCE2} %{buildroot}%{_unitdir}/frps@.service
 %dir %{_sysconfdir}/frpc
 %config(noreplace) %{_sysconfdir}/frpc/frpc.toml
 %{_unitdir}/frpc@.service
+%{_unitdir}/frpc.service
 
 %files -n frps
 %license LICENSE
@@ -72,6 +77,7 @@ install -m 644 %{SOURCE2} %{buildroot}%{_unitdir}/frps@.service
 %dir %{_sysconfdir}/frps
 %config(noreplace) %{_sysconfdir}/frps/frps.toml
 %{_unitdir}/frps@.service
+%{_unitdir}/frps.service
 
 %changelog
 * %{date} awfufu <me@awfufu.com> - %{version}-%{release}

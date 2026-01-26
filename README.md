@@ -54,7 +54,9 @@ sudo vim /etc/frpc/frpc.toml
 
 ```bash
 # If using default /etc/frpc/frpc.toml:
-sudo systemctl enable --now frpc@frpc
+sudo systemctl enable --now frpc
+# OR (template version)
+# sudo systemctl enable --now frpc@frpc
 
 # If using /etc/frpc/my-proxy.toml:
 sudo systemctl enable --now frpc@my-proxy
@@ -78,6 +80,8 @@ sudo vim /etc/frps/frps.toml
 2. Start Service
 
 ```bash
+sudo systemctl enable --now frps
+# OR (template version)
 sudo systemctl enable --now frps@frps
 ```
 

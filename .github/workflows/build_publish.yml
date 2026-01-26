@@ -99,6 +99,8 @@ jobs:
         
         cp frpc@.service ~/rpmbuild/SOURCES/
         cp frps@.service ~/rpmbuild/SOURCES/
+        cp frpc.service ~/rpmbuild/SOURCES/
+        cp frps.service ~/rpmbuild/SOURCES/
 
     - name: Build RPM
       run: |
@@ -142,12 +144,13 @@ jobs:
 
           mkdir -p frpc_pkg/DEBIAN
           mkdir -p frpc_pkg/usr/bin
-          mkdir -p frpc_pkg/lib/systemd/system
-          mkdir -p frpc_pkg/etc/frp
+          mkdir -p frpc_pkg/usr/lib/systemd/system
+          mkdir -p frpc_pkg/etc/frpc
 
           cp frp_bin/frpc frpc_pkg/usr/bin/
-          cp frp_bin/frpc.toml frpc_pkg/etc/frp/
-          cp frpc@.service frpc_pkg/lib/systemd/system/
+          cp frp_bin/frpc.toml frpc_pkg/etc/frpc/
+          cp frpc@.service frpc_pkg/usr/lib/systemd/system/
+          cp frpc.service frpc_pkg/usr/lib/systemd/system/
 
           cat > frpc_pkg/DEBIAN/control <<EOF
           Package: frpc
@@ -170,12 +173,13 @@ jobs:
 
           mkdir -p frps_pkg/DEBIAN
           mkdir -p frps_pkg/usr/bin
-          mkdir -p frps_pkg/lib/systemd/system
-          mkdir -p frps_pkg/etc/frp
+          mkdir -p frps_pkg/usr/lib/systemd/system
+          mkdir -p frps_pkg/etc/frps
 
           cp frp_bin/frps frps_pkg/usr/bin/
-          cp frp_bin/frps.toml frps_pkg/etc/frp/
-          cp frps@.service frps_pkg/lib/systemd/system/
+          cp frp_bin/frps.toml frps_pkg/etc/frps/
+          cp frps@.service frps_pkg/usr/lib/systemd/system/
+          cp frps.service frps_pkg/usr/lib/systemd/system/
 
           cat > frps_pkg/DEBIAN/control <<EOF
           Package: frps
@@ -258,7 +262,7 @@ jobs:
           # Only run createrepo on RPM architecture directories
           for arch in x86_64 aarch64; do
             if [ -d "output/$arch" ]; then
-              createrepo_c "output/$arch"
+              createrepo_c --database --update "output/$arch"
             fi
           done
 
